@@ -50,6 +50,8 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 
 
 #include "llvm/CodeGen/MIRParser/MIRParser.h"
@@ -132,16 +134,52 @@ class BHiveImporter {
   // store into name_to_graph_
   void Block_to_Interference() {
 
+    llvm::PassRegistry *Registry = llvm::PassRegistry::getPassRegistry();
+    llvm::initializeCore(*Registry);
+    llvm::initializeCodeGen(*Registry);
+    llvm::initializeLoopStrengthReducePass(*Registry);
+    llvm::initializeLowerIntrinsicsPass(*Registry);
+    llvm::initializeUnreachableBlockElimLegacyPassPass(*Registry);
+    llvm::initializeConstantHoistingLegacyPassPass(*Registry);
+    llvm::initializeScalarOpts(*Registry);
+    llvm::initializeVectorization(*Registry);
+    llvm::initializeScalarizeMaskedMemIntrinLegacyPassPass(*Registry);
+    llvm::initializeExpandReductionsPass(*Registry);
+    llvm::initializeExpandVectorPredicationPass(*Registry);
+    llvm::initializeHardwareLoopsLegacyPass(*Registry);
+    llvm::initializeTransformUtils(*Registry);
+    llvm::initializeReplaceWithVeclibLegacyPass(*Registry);
+    llvm::initializeTLSVariableHoistLegacyPassPass(*Registry);
+
     // Use a dense map to store name to the name to graph
     llvm::DenseMap<llvm::StringRef, llvm::MachineBasicBlock*> name_to_graph_;
     
     // Use a pass manager to run the liveness analysis
     // run pass on whole module
+    // llvm::legacy::PassManager passManager;
+    // auto lifeIntervalPass = new llvm::LiveIntervals();
+    // passManager.add(new llvm::MachineDominatorTree());
+    // passManager.add(lifeIntervalPass);
+    // passManager.run(*mir_module_);
+
+    const llvm::PassInfo *LiveRangesPassInfo = Registry->getPassInfo(&llvm::LiveIntervals::ID);
+    auto lifeIntervalPass = LiveRangesPassInfo->getNormalCtor()();
+    llvm::TargetMachine& target_machine_m = const_cast<llvm::TargetMachine&>(target_machine_);
+    llvm::LLVMTargetMachine &LLVMTM = static_cast<llvm::LLVMTargetMachine &>(target_machine_m);
+    llvm::MachineModuleInfoWrapperPass *MMIWP =
+        new llvm::MachineModuleInfoWrapperPass(&LLVMTM);
     llvm::legacy::PassManager passManager;
-    auto lifeIntervalPass = new llvm::LiveIntervals();
-    passManager.add(new llvm::MachineDominatorTree());
+    llvm::TargetPassConfig *PTPC = LLVMTM.createPassConfig(passManager);
+    llvm::TargetPassConfig &TPC = *PTPC;
+    passManager.add(&TPC);
+    passManager.add(MMIWP);
+    TPC.addMachinePrePasses();
     passManager.add(lifeIntervalPass);
+    TPC.addMachinePostPasses("Banner");
+    TPC.setInitialized();
+    llvm::LiveIntervals *LIP = dynamic_cast<llvm::LiveIntervals *>(lifeIntervalPass);
     passManager.run(*mir_module_);
+    LOG(LiveRangesPassInfo->getPassName());
 
     // For each function, we want to do live range analysis of this function
     for (auto &F : *mir_module_) {
@@ -155,8 +193,9 @@ class BHiveImporter {
           for (auto& MI : MBB){
             for (unsigned int i = 0; i < MI.getNumOperands(); i++){
               const llvm::MachineOperand& operand = MI.getOperand(i);
+              // LOG(operand);
               if (operand.isReg()){
-                LOG(lifeIntervalPass->getInterval(operand.getReg()));
+                LOG(LIP->getInterval(operand.getReg()));
               }
             }
           }

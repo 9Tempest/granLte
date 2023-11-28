@@ -106,7 +106,7 @@ cc_test(
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
         "@llvm-project//llvm:ir_headers",
-        "@llvm-project//llvm:Pass",
+        "@llvm-project//llvm:Passes",
         "@llvm-project//llvm:Analysis",
     ],
 )
