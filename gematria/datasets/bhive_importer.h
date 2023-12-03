@@ -137,7 +137,7 @@ class BHiveImporter {
   // A temporary struct for storing information of live range of a register
     struct RegLiveInterval {
       std::string name; //name of the register
-      std::vector< std::pair< std::string, std::string > > rangeList;
+      std::vector< std::pair< std::string, std::string > > rangeList; // Change them into LLVM data structures
       std::string anchor;
       std::string weight;
     };
@@ -146,10 +146,12 @@ class BHiveImporter {
     struct FunctionInfo {
       std::vector<RegLiveInterval> register_live_range_func;
       std::vector< 
-          std::pair< std::string, std::string > > BBRangeList; 
+          std::pair< std::string, std::string > > BBRangeList // Need to get how to construct ranges for a basic block; 
     };
 
     // Utility for deciding whether two ranges intersect
+    // This function only returns when two registers intersect and
+    // the intersect happens in the range of Basic Block provided
     bool intersect(RegLiveInterval Reg1, RegLiveInterval Reg2, 
         std::pair<std::string, std::string> BBInformation) {
       
@@ -211,7 +213,7 @@ class BHiveImporter {
     FunctionInfo temp; 
     bool FirstTime = false; 
 
-    // Now we parse the line
+    // Now we parse the line 
     while (std::getline(input_file, line)) {
       // Create a string stream so that we could process each item in the line
       std::istringstream tempInteval(line);
@@ -252,6 +254,7 @@ class BHiveImporter {
         std::vector<std::pair<std::string, std::string>> IntevalListOneReg; 
         IntevalListOneReg.push_back(oneInterval); 
 
+        // Construct a single interval and then 
         RegLiveInterval singleInteval = {"name", IntevalListOneReg, anchorIntevral, weight};
         temp.register_live_range_func.push_back(singleInteval);
       }
