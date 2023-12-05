@@ -338,6 +338,74 @@ void printMap(
   }
 }
 
+// Utility function that given two BhiveLiveRange object
+// Decide whether they intersect and the intersected range
+// RETURN: 
+//    If they intersect, then return the intersection range
+//    If they do not intersect, then return [0,0)
+absl::StatusOr<BHiveImporter::BhiveLiveRange> getIntersection(
+      BHiveImporter::BhiveLiveRange range1, 
+      BHiveImporter::BhiveLiveRange range2
+      ) {
+  // The default value to return
+  BHiveImporter::BhiveLiveRange result;
+
+  // Without loss of generality, we want range1 to have lower intersections
+  if (range1.first >= range2.first) std::swap(range1, range2);
+
+  // Now we want to know where the value of range1.second lies
+  // There are three cases
+  // Case 1: range1.second <= range2.first, This means they will never intersect
+  // Case 2: range1.second > range2.first but range1.second < range2.second
+  //    In which case we have the intersection to be [range2.first, range1.second)
+  // Case 3: range1.second >= range2.second
+  //    In which case we have the intersection to be [range2.first, range2.second)
+  if (range1.second <= range2.first) {
+    result.first = 0; result.second = 0;
+  }
+  else if (range1.second > range2.first && range1.second <= range2.second) {
+    result.first = range2.first;
+    result.second = range1.second;
+  }
+  else if (range1.second > range2.second) {
+    result.first = range2.first;
+    result.second = range2.second;
+  } 
+
+  else {
+    // If we fall into this case, there must be something worng with the program
+    std::string errorMesssage = "In intersection function, there is someting wrong";
+            // "   Input range1: " + std::to_string(range1.first) + ", " + std::to_string(range1.second) + 
+            // "   Input range1: " + std::to_string(range2.first) + ", " + std::to_string(range2.second) +
+            // "   Output: " + std::to_string(isIntersect) + ", " + std::to_string(range2.first) + ", " + std::to_string(range2.second);
+
+    // absl::InvalidArgumentError(absl::StrCat(errorMesssage));
+  }
+
+  return result;
+}
+
+// Debug utilities of the intersection function
+void printIntersection() {
+  LOG("**********Testing Intersection**********");
+  BHiveImporter::BhiveLiveRange range1 {100, 200}; 
+  BHiveImporter::BhiveLiveRange range2 {50, 100}; 
+  BHiveImporter::BhiveLiveRange range3 {50, 150}; 
+  BHiveImporter::BhiveLiveRange range4 {50, 250}; 
+
+  BHiveImporter::BhiveLiveRange result1 = getIntersection(range1, range1).value();
+  BHiveImporter::BhiveLiveRange result2 = getIntersection(range1, range2).value();
+  BHiveImporter::BhiveLiveRange result3 = getIntersection(range1, range3).value();
+  BHiveImporter::BhiveLiveRange result4 = getIntersection(range1, range4).value();
+  BHiveImporter::BhiveLiveRange result5 = getIntersection(range3, range1).value();
+
+  LOG("Result 1: " << result1.first << ", " << result1.second); 
+  LOG("Result 2: " << result2.first << ", " << result2.second); 
+  LOG("Result 3: " << result3.first << ", " << result3.second); 
+  LOG("Result 4: " << result4.first << ", " << result4.second); 
+  LOG("Result 5: " << result5.first << ", " << result5.second); 
+}
+
 absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(
     std::string_view file_name) {
   // Boilerplate for reading input
@@ -450,6 +518,9 @@ absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(
 
   // Now we want to debug and print things inside the FunctionLiveIntervalMap
   printMap(func_to_live_intervals_);
+
+  // Debug intersection function
+  printIntersection();
 
   // // This stores the information of the whole function
   // std::vector<FunctionInfo> FunctionInfoList;
