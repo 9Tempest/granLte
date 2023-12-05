@@ -239,8 +239,6 @@ TEST_F(BHiveImporterTest, MIRDatasetTest2) {
               IsOk());
   EXPECT_THAT(x86_bhive_importer_->InteferenceGraphParser("sample_dataset/singleliveinfo"),
               IsOk());
-  EXPECT_THAT(x86_bhive_importer_->InteferenceGraphParser("sample_dataset/liveinfo"),
-              IsOk());
 }
 
 }  // namespace

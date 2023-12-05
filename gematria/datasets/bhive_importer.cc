@@ -323,7 +323,7 @@ absl::Status printRegLiveIntervals(BHiveImporter::RegLiveIntervals LI) {
 absl::Status printBBRangeList(llvm::StringRef name, llvm::SmallVector<BHiveImporter::BhiveLiveRange> rangeList) {
   std::cerr << "Information of Single RegLiveIntervals named: " << name.str() << "\n";
 
-  for (BHiveImporter::BhiveLiveRange range: rangeList) {
+  for (auto& range: rangeList) {
     std::cerr << "  Live range: " << range.first << ", " << range.second << "\n";
   }
   
@@ -427,9 +427,9 @@ absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(std::string_view file
     
     // If we encounter a "BB_" symbol, then we encounter a BB entry
     else if (line.substr(0, 3) == "BB_") {
-      std::string currentBB;
       unsigned int start, end;
       char dummy; std::string junk;
+      std::string currentBB = ""; 
 
       // Read name of BB and delete the trailing ':'
       lineStream >> currentBB;
@@ -442,12 +442,15 @@ absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(std::string_view file
       // Notice we need to make a copy of BB to insert otherwise we overwrite other values
       // Fix: The current BB name is not correct, got overwritten in each iteration
       std::string stripped(currentBB); 
+      LOG("current BB :" << currentBB);
       info.BBRangeList.insert( 
-        std::pair<llvm::StringRef, llvm::SmallVector<BhiveLiveRange>>{
-          llvm::StringRef(stripped.c_str(), stripped.length()), 
+        std::pair<std::string, llvm::SmallVector<BhiveLiveRange>>{
+          stripped, 
           llvm::SmallVector<BhiveLiveRange>{{start, end}}
         }
       );
+
+      currentBB = ""; 
     }
 
     // In this case, we arrived at the definition of a new function
@@ -460,7 +463,7 @@ absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(std::string_view file
       std::string copyName(curFuncName);
       FunctionLiveIntervalInfoMap.insert(
         std::pair<llvm::StringRef, FunctionLiveIntervalInfo>{
-          llvm::StringRef(copyName.c_str(), copyName.length()), 
+          llvm::StringRef(copyName), 
           info
         }
       );
@@ -479,7 +482,7 @@ absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(std::string_view file
   // Finally add the final data entry
   FunctionLiveIntervalInfoMap.insert(
     std::pair<llvm::StringRef, FunctionLiveIntervalInfo>{
-      llvm::StringRef(curFuncName.c_str(), curFuncName.length()), 
+      llvm::StringRef(curFuncName), 
       info
     }
   );
