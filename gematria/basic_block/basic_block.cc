@@ -46,6 +46,40 @@ std::ostream& operator<<(std::ostream& os, OperandType operand_type) {
 
 #undef GEMATRIA_PRINT_ENUM_VALUE_TO_OS
 
+bool VirtualRegister::operator==(const VirtualRegister& other) const {
+  return name == other.name 
+    && size == other.size 
+    && other.interfered_registers == interfered_registers;
+}
+
+std::string VirtualRegister::ToString() const {
+  std::stringstream buffer;
+  buffer << "VirtualRegister(";
+  if (!name.empty()) {
+    buffer << "register_name='" << name << "', ";
+  }
+  if (size != 0) {
+    buffer << "size=" << size << ", ";
+  }
+  if (!interfered_registers.empty()) {
+    buffer << "interfered_registers=(";
+    for (const std::string& register_name : interfered_registers) {
+      buffer << "'" << register_name << "', ";
+    }
+    // Pop only the trailing space. For simplicity, we leave the trailing comma
+    // which is required in case there is only one element.
+    buffer.seekp(-1, std::ios_base::end);
+    buffer << "), ";
+  }
+  // If we added any keyword args to the buffer, drop the last two characters
+  // (a comma and a space). This is not strictly necessary, but it looks better.
+  auto msg = buffer.str();
+  assert(msg.size() >= 2);
+  if (msg.back() == ' ') msg.resize(msg.size() - 2);
+  msg.push_back(')');
+  return msg;
+}
+
 bool AddressTuple::operator==(const AddressTuple& other) const {
   const auto as_tuple = [](const AddressTuple& address) {
     return std::tie(address.base_register, address.displacement,

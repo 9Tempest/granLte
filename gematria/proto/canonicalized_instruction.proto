@@ -55,20 +55,33 @@ message CanonicalizedInstructionProto {
 
 // Contains information about a single operand in the canonicalized instruction.
 message CanonicalizedOperandProto {
+  message RegisterProto {
+    message VirtualRegister {
+      // The name of the virtual register.
+      string name = 1;
+      // The size of the virtual register in bits.
+      int32 size = 2;
+      // Optional. The name of the registers where the current register interfered with
+      repeated string intefered_register = 7;
+    }
+    oneof type {
+      string physical_register = 1;
+      VirtualRegister virtual_register = 2;
+    }
+  }
   // Contains all the elements of a memory reference. This is equivalent to the
   // memory address 5-tuple used by LLVM for x86-64.
   message AddressTuple {
-    // The name of the base register; empty when a base register is not used.
-    string base_register = 1;
-    // The name of the index register; empty when an index register is not used.
-    string index_register = 2;
     // The value of the displacement; zero if displacement is not used.
-    int64 displacement = 3;
+    int64 displacement = 1;
     // The value of the scaling factor; one if scaling is not used.
-    int32 scaling = 4;
+    int32 scaling = 2;
+    // The name of the base register; empty when the base register is not used.
+    RegisterProto base_register = 3;
+    RegisterProto index_register = 4;
     // The name of the segment register; empty when an explicit segment register
     // is not given.
-    string segment = 5;
+    RegisterProto segment = 5;
   }
 
   // Contains information about a memory operand of an instruction. We allow
@@ -87,13 +100,6 @@ message CanonicalizedOperandProto {
     int32 alias_group_id = 1;
   }
 
-  message VirtualRegister {
-    // The name of the virtual register.
-    string name = 1;
-    // The size of the virtual register in bits.
-    int32 size = 2;
-  }
-
   // The operand must be exactly one of the following:
   //   - a register,
   //   - an integer immediate value,
@@ -101,12 +107,12 @@ message CanonicalizedOperandProto {
   //   - a memory address computation 5-tuple,
   //   - a memory location.
   oneof operand {
-    // The name of the register when the operand is a register.
-    string register_name = 1;
     // The immediate value when the operand is an integer immediate value.
-    uint64 immediate_value = 2;
+    uint64 immediate_value = 1;
     // The immediate value when the operand is a floating point immediate value.
-    double fp_immediate_value = 3;
+    double fp_immediate_value = 2;
+    // The name of the register when the operand is a register.
+    RegisterProto register = 3;
     // The information used for address computation when the opeand is a memory
     // address passed through the ModR/M and SIB bytes. Note that the presence
     // of this field implies that the instruction does address computation, but
@@ -120,10 +126,6 @@ message CanonicalizedOperandProto {
     AddressTuple address = 4;
     // The information about the memory location accessed by the instruction.
     MemoryLocation memory = 5;
-    // The information about the virtual register.
-    VirtualRegister virtual_register = 6;
   }
 
-  // Optional. The name of the registers where the current register interfered with
-  repeated string intefered_register = 7;
 }

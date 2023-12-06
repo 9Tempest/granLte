@@ -46,6 +46,11 @@ inline std::string getVREG_TOKEN(size_t size) {
   return std::string(kVirtualRegisterToken) + std::to_string(size) + "_";
 } 
 
+enum class RegisterType {
+  kPhysical,
+  kVirtual,
+};
+
 // The type of an operand of an instruction.
 enum class OperandType {
   // The type of the operand is not known/the operand was not correctly
@@ -77,6 +82,37 @@ enum class OperandType {
 };
 
 std::ostream& operator<<(std::ostream& os, OperandType operand_type);
+
+struct VirtualRegister {
+  VirtualRegister() {}
+  VirtualRegister(const VirtualRegister&) = default;
+  VirtualRegister(VirtualRegister&&) = default;
+  VirtualRegister(std::string name, size_t size, std::vector<std::string> interfered_registers)
+      : name(std::move(name)), size(size), interfered_registers(std::move(interfered_registers)) {}
+
+  VirtualRegister& operator=(const VirtualRegister&) = default;
+  VirtualRegister& operator=(VirtualRegister&&) = default;
+
+  bool operator==(const VirtualRegister& other) const;
+  bool operator!=(const VirtualRegister& other) const { return !(*this == other); }
+
+  // Returns a human-readable string representation of the virtual register.
+  // This representation corresponds to Python code that creates the same
+  // object, e.g. "VirtualRegister(name='RAX', size=64)" (without the
+  // indentation).
+  std::string ToString() const;
+
+  // The name of the virtual register.
+  std::string name;
+
+  // The size of the virtual register in bits.
+  size_t size;
+
+  // The list of interfered registers
+  std::vector<std::string> interfered_registers;
+};
+
+std::ostream& operator<<(std::ostream &os, const VirtualRegister &vreg);
 
 // Represents inputs to address computation of an instruction.
 struct AddressTuple {
@@ -110,6 +146,8 @@ struct AddressTuple {
   // is not used in the computation.
   std::string base_register;
 
+  VirtualRegister virtual_base_register;
+
   // An absolute displacement (offset) of the address. When zero, a displacement
   // is not used.
   int64_t displacement = 0;
@@ -117,6 +155,8 @@ struct AddressTuple {
   // The name of the index register of the address. When empty, index register
   // is not used in the computation.
   std::string index_register;
+
+  VirtualRegister virtual_index_register;
 
   // The scaling factor of the index register. The interpretation depends on the
   // used architecture; on x86-64 it is the log_2 of the scaling factor applied
@@ -126,6 +166,8 @@ struct AddressTuple {
   // The name of the segment register. When empty, the default segment register
   // for the instruction is used.
   std::string segment_register;
+
+  VirtualRegister virtual_segment_register;
 };
 
 std::ostream& operator<<(std::ostream& os, const AddressTuple& address_tuple);

@@ -35,31 +35,49 @@ namespace {
 AddressTuple AddressTupleFromProto(
     const CanonicalizedOperandProto::AddressTuple& proto) {
   return AddressTuple(
-      /* base_register = */ proto.base_register(),
+      /* base_register = */ proto.base_register().physical_register(),
       /* displacement = */ proto.displacement(),
-      /* index_register = */ proto.index_register(),
+      /* index_register = */ proto.index_register().physical_register(),
       /* scaling = */ proto.scaling(),
-      /* segment_register = */ proto.segment());
+      /* segment_register = */ proto.segment().physical_register());
 }
 
 CanonicalizedOperandProto::AddressTuple ProtoFromAddressTuple(
     const AddressTuple& address_tuple) {
   CanonicalizedOperandProto::AddressTuple proto;
-  proto.set_base_register(address_tuple.base_register);
+  proto.mutable_base_register()->set_physical_register(
+      address_tuple.base_register);
   proto.set_displacement(address_tuple.displacement);
-  proto.set_index_register(address_tuple.index_register);
+  proto.mutable_index_register()->set_physical_register(
+      address_tuple.index_register);
   proto.set_scaling(address_tuple.scaling);
-  proto.set_segment(address_tuple.segment_register);
+  proto.mutable_segment()->set_physical_register(
+      address_tuple.segment_register);
   return proto;
 }
 
 InstructionOperand InstructionOperandFromProto(
     const CanonicalizedOperandProto& proto) {
+  auto register_proto = proto.register_();
   switch (proto.operand_case()) {
     case CanonicalizedOperandProto::OPERAND_NOT_SET:
       return InstructionOperand();
-    case CanonicalizedOperandProto::kRegisterName:
-      return InstructionOperand::Register(proto.register_name());
+    case CanonicalizedOperandProto::kRegister:
+      {
+        switch (register_proto.type_case()) {
+          case CanonicalizedOperandProto::RegisterProto::TYPE_NOT_SET:
+            return InstructionOperand();
+          case CanonicalizedOperandProto::RegisterProto::kPhysicalRegister:
+            return InstructionOperand::Register(
+                register_proto.physical_register());
+          case CanonicalizedOperandProto::RegisterProto::kVirtualRegister:
+            return InstructionOperand::VirtualRegister(
+                register_proto.virtual_register().name(),
+                register_proto.virtual_register().size(),
+                ToVector(register_proto.virtual_register().intefered_register()));
+        }
+        return InstructionOperand();
+      }
     case CanonicalizedOperandProto::kImmediateValue:
       return InstructionOperand::ImmediateValue(proto.immediate_value());
     case CanonicalizedOperandProto::kFpImmediateValue:
@@ -70,22 +88,17 @@ InstructionOperand InstructionOperandFromProto(
     case CanonicalizedOperandProto::kMemory:
       return InstructionOperand::MemoryLocation(
           proto.memory().alias_group_id());
-    case CanonicalizedOperandProto::kVirtualRegister:
-      {
-        std::vector<std::string> interfered_registers = ToVector(proto.intefered_register());
-        return InstructionOperand::VirtualRegister(
-          proto.virtual_register().name(), proto.virtual_register().size(), interfered_registers);
-      }
-      
   }
 }
 
 CanonicalizedOperandProto ProtoFromInstructionOperand(
     const InstructionOperand& operand) {
   CanonicalizedOperandProto proto;
+  CanonicalizedOperandProto::RegisterProto register_proto;
   switch (operand.type()) {
     case OperandType::kRegister:
-      proto.set_register_name(operand.register_name());
+      register_proto.set_physical_register(operand.register_name());
+      *proto.mutable_register_() = register_proto;
       break;
     case OperandType::kImmediateValue:
       proto.set_immediate_value(operand.immediate_value());
@@ -100,10 +113,11 @@ CanonicalizedOperandProto ProtoFromInstructionOperand(
       proto.mutable_memory()->set_alias_group_id(operand.alias_group_id());
       break;
     case OperandType::kVirtualRegister: {
-      CanonicalizedOperandProto::VirtualRegister* virtual_register =
-          proto.mutable_virtual_register();
+      auto virtual_register =
+          register_proto.mutable_virtual_register();
       virtual_register->set_name(operand.register_name());
       virtual_register->set_size(operand.size());
+      *proto.mutable_register_() = register_proto;
       break;
     }
     case OperandType::kUnknown:

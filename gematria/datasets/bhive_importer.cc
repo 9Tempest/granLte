@@ -96,7 +96,7 @@ BHiveImporter::BHiveImporter(const Canonicalizer* canonicalizer)
     }
   }
   // prettyPrintName2Reg();
-  prettyPrintSuperReg2SubReg();
+  // prettyPrintSuperReg2SubReg();
 }
 
 absl::StatusOr<BasicBlockProto> BHiveImporter::BasicBlockProtoFromMachineCode(
@@ -558,19 +558,21 @@ void BHiveImporter::addInterferenceGraph(
   // helper function to update live_virtual_registers and
   // live_physical_registers
   auto update_live_regs = [&](const CanonicalizedOperandProto& operand) {
-    if (operand.operand_case() == CanonicalizedOperandProto::kVirtualRegister) {
-      live_virtual_registers.insert(operand.virtual_register().name());
-    } else if (operand.operand_case() ==
-               CanonicalizedOperandProto::kRegisterName) {
-      live_physical_registers.insert(operand.register_name());
+    if (operand.operand_case() == CanonicalizedOperandProto::kRegister) {
+      auto registerProto = operand.register_();
+      if (registerProto.type_case() == CanonicalizedOperandProto::RegisterProto::kVirtualRegister) {
+        live_virtual_registers.insert(registerProto.virtual_register().name());
+      } else if (registerProto.type_case() == CanonicalizedOperandProto::RegisterProto::kPhysicalRegister) {
+        live_physical_registers.insert(registerProto.physical_register());
+      }
     }
   };
 
   auto add_interference = [&](CanonicalizedOperandProto& operand) {
-    if (operand.operand_case() == CanonicalizedOperandProto::kVirtualRegister) {
+    if (operand.operand_case() == CanonicalizedOperandProto::kRegister && operand.register_().type_case() == CanonicalizedOperandProto::RegisterProto::kVirtualRegister) {
       // add interference from other virtual registers to current operand
       for (auto vReg : live_virtual_registers) {
-        if (vReg == operand.virtual_register().name()) continue;
+        if (vReg == operand.register_().virtual_register().name()) continue;
         assert(func_live_infos.virtual_register_live_range_func.find(vReg) !=
                    func_live_infos.virtual_register_live_range_func.end() &&
                "Virtual register not found in map");
@@ -578,10 +580,10 @@ void BHiveImporter::addInterferenceGraph(
         // interference to proto
         if (checkRegIntersectionsWithBBRange(
                 func_live_infos.virtual_register_live_range_func
-                    [operand.virtual_register().name()],
+                    [operand.register_().virtual_register().name()],
                 func_live_infos.virtual_register_live_range_func[vReg],
                 bb_range)) {
-          operand.mutable_intefered_register()->Add(std::move(vReg));
+          operand.mutable_register_()->mutable_virtual_register()->add_intefered_register(std::move(vReg));
         }
       }
       // add interference from physical registers to current operand
@@ -602,10 +604,10 @@ void BHiveImporter::addInterferenceGraph(
           }
           if (checkRegIntersectionsWithBBRange(
                   func_live_infos.virtual_register_live_range_func
-                      [operand.virtual_register().name()],
+                      [operand.register_().virtual_register().name()],
                   func_live_infos.physical_register_live_range_func[subReg],
                   bb_range)) {
-            operand.mutable_intefered_register()->Add(std::move(pReg));
+            operand.mutable_register_()->mutable_virtual_register()->add_intefered_register(std::move(pReg));
             break;
           }
         }

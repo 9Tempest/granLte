@@ -83,11 +83,17 @@ TEST(InstructionOperandFromProtoTest, FpImmediateValue) {
 TEST(InstructionOperandFromProtoTest, Address) {
   const CanonicalizedOperandProto proto = ParseTextProto(R"pb(
     address {
-      base_register: 'RSI'
-      index_register: 'RCX'
+      base_register {
+        physical_register: 'RSI'
+      }
+      index_register {
+        physical_register: 'RCX'
+      }
       displacement: 32
       scaling: 1
-      segment: 'ES'
+      segment{
+        physical_register: 'ES'
+      }
     })pb");
   InstructionOperand operand = InstructionOperandFromProto(proto);
   EXPECT_EQ(operand,
@@ -130,11 +136,17 @@ TEST(ProtoFromInstructionOperandTest, Address) {
 
                   )),
               EqualsProto(R"pb(address {
-                                 base_register: 'RAX'
+                                 base_register {
+                                  physical_register: "RAX"
+                                }
                                  displacement: 33
-                                 index_register: 'RCX'
+                                 index_register:{
+                                  physical_register: "RCX"
+                                 }
                                  scaling: 1
-                                 segment: 'ES'
+                                 segment: {
+                                  physical_register: "ES"
+                                 }
                                })pb"));
 }
 
@@ -150,11 +162,31 @@ TEST(InstructionFromProtoTest, AllFields) {
     prefixes: "LOCK"
     prefixes: "REP"
     llvm_mnemonic: "ADC32rr"
-    output_operands { register_name: "RAX" }
-    input_operands { register_name: "RAX" }
-    input_operands { register_name: "RDI" }
-    implicit_output_operands { register_name: "EFLAGS" }
-    implicit_input_operands { register_name: "EFLAGS" }
+    output_operands { 
+      register {
+        physical_register: "RAX"
+      } 
+     }
+    input_operands { 
+      register {
+        physical_register: "RAX"
+      }
+     }
+    input_operands { 
+      register {
+        physical_register: "RDI"
+      }
+     }
+    implicit_output_operands { 
+      register {
+        physical_register: "EFLAGS"
+      }
+     }
+    implicit_input_operands { 
+      register {
+        physical_register: "EFLAGS"
+      }
+     }
     implicit_input_operands { immediate_value: 1 }
   )pb");
   Instruction instruction = InstructionFromProto(proto);
@@ -189,11 +221,31 @@ TEST(ProtoFromInstructionTest, AllFields) {
                 prefixes: "LOCK"
                 prefixes: "REP"
                 llvm_mnemonic: "ADC32rr"
-                output_operands { register_name: "RAX" }
-                input_operands { register_name: "RAX" }
-                input_operands { register_name: "RDI" }
-                implicit_output_operands { register_name: "EFLAGS" }
-                implicit_input_operands { register_name: "EFLAGS" }
+                output_operands { 
+                  register {
+                    physical_register: "RAX"
+                  } 
+                }
+                input_operands { 
+                  register {
+                    physical_register: "RAX"
+                  }
+                 }
+                input_operands { 
+                  register {
+                    physical_register: "RDI"
+                  }
+                }
+                implicit_output_operands { 
+                  register {
+                    physical_register: "EFLAGS"
+                  }
+                }
+                implicit_input_operands {
+                  register {
+                    physical_register: "EFLAGS"
+                  }
+                }
                 implicit_input_operands { immediate_value: 1 }
               )pb"));
 }
@@ -203,14 +255,30 @@ TEST(BasicBlockFromProtoTest, SomeInstructions) {
     canonicalized_instructions: {
       mnemonic: "MOV"
       llvm_mnemonic: "MOV64rr"
-      output_operands: { register_name: "RCX" }
-      input_operands: { register_name: "RAX" }
+      output_operands: { 
+        register {
+          physical_register: "RCX"
+        }
+      }
+      input_operands: { 
+        register {
+          physical_register: "RAX"
+        }
+      }
     }
     canonicalized_instructions: {
       mnemonic: "NOT"
       llvm_mnemonic: "NOT64r"
-      output_operands: { register_name: "RCX" }
-      input_operands: { register_name: "RCX" }
+      output_operands: { 
+        register {
+          physical_register: "RCX"
+        }
+      }
+      input_operands: { 
+        register {
+          physical_register: "RCX"
+        }
+      }
     }
   )pb");
   const BasicBlock block = BasicBlockFromProto(proto);
@@ -240,12 +308,14 @@ TEST(BasicBlockFromProtoTest, VRegInstructions) {
       mnemonic: "CMP64RI32"
       llvm_mnemonic: "CMP64ri32"
       input_operands { 
-        virtual_register { name: "%60" size: 64 } 
+        register {virtual_register { name: "%60" size: 64 }}
         intefered_register: "%61"
         intefered_register: "%62"
       }
       input_operands { immediate_value: 0 }
-      implicit_output_operands { register_name: "EFLAGS" }
+      implicit_output_operands { 
+        register { physical_register: "EFLAGS" }
+       }
     }
   )pb");
   const BasicBlock block = BasicBlockFromProto(proto);

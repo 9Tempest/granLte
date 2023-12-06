@@ -69,10 +69,26 @@ TEST_F(BHiveImporterTest, OneInstruction) {
                          canonicalized_instructions {
                            mnemonic: "SUB"
                            llvm_mnemonic: "SUB64rr"
-                           output_operands { register_name: "R10" }
-                           input_operands { register_name: "R10" }
-                           input_operands { register_name: "RDX" }
-                           implicit_output_operands { register_name: "EFLAGS" }
+                           output_operands { 
+                              register {
+                                physical_register: "R10"
+                              }
+                            }
+                           input_operands { 
+                              register {
+                                physical_register: "R10"
+                              }
+                            }
+                           input_operands { 
+                              register {
+                                physical_register: "RDX"
+                              }
+                            }
+                           implicit_output_operands { 
+                              register {
+                                physical_register: "EFLAGS"
+                              }
+                            }
                          }
                        }
                        inverse_throughputs {
@@ -88,10 +104,26 @@ TEST_F(BHiveImporterTest, OneInstruction) {
                        canonicalized_instructions {
                          mnemonic: "SUB"
                          llvm_mnemonic: "SUB64rr"
-                         output_operands { register_name: "R10" }
-                         input_operands { register_name: "R10" }
-                         input_operands { register_name: "RDX" }
-                         implicit_output_operands { register_name: "EFLAGS" }
+                         output_operands { 
+                            register {
+                              physical_register: "R10"
+                            }
+                          }
+                         input_operands { 
+                            register {
+                              physical_register: "R10"
+                            }
+                          }
+                         input_operands { 
+                            register {
+                              physical_register: "RDX"
+                            }
+                          }
+                         implicit_output_operands { 
+                            register {
+                              physical_register: "EFLAGS"
+                            }
+                          }
                        })pb")));
 }
 
@@ -131,18 +163,41 @@ TEST_F(BHiveImporterTest, MultipleInstructions) {
              canonicalized_instructions {
                mnemonic: "SUB"
                llvm_mnemonic: "SUB64rr"
-               output_operands { register_name: "RBX" }
-               input_operands { register_name: "RBX" }
-               input_operands { register_name: "RDX" }
-               implicit_output_operands { register_name: "EFLAGS" }
+               output_operands { 
+                  register {
+                    physical_register: "RBX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RBX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RDX"
+                  }
+                }
+               implicit_output_operands { 
+                  register {
+                    physical_register: "EFLAGS"
+                  }
+                }
              }
              canonicalized_instructions {
                mnemonic: "MOV"
                llvm_mnemonic: "MOV32rm"
-               output_operands { register_name: "EAX" }
+               output_operands { 
+                  register {
+                    physical_register: "EAX"
+                  }
+                }
                input_operands { memory { alias_group_id: 1 } }
                input_operands {
-                 address { base_register: "RSP" displacement: 108 scaling: 1 }
+                 address { base_register {
+                    physical_register: "RSP"
+                  } 
+                displacement: 108 scaling: 1 }
                }
              }
              canonicalized_instructions {
@@ -151,31 +206,70 @@ TEST_F(BHiveImporterTest, MultipleInstructions) {
                output_operands { register_name: "EDX" }
                input_operands { memory { alias_group_id: 1 } }
                input_operands {
-                 address { base_register: "RSP" displacement: 104 scaling: 1 }
+                 address { base_register {
+                  physical_register: "RSP"
+                } 
+                displacement: 104 scaling: 1 }
                }
              }
              canonicalized_instructions {
                mnemonic: "SAR"
                llvm_mnemonic: "SAR64ri"
-               output_operands { register_name: "RBX" }
-               input_operands { register_name: "RBX" }
+               output_operands { 
+                  register {
+                    physical_register: "RBX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RBX"
+                  }
+                }
                input_operands { immediate_value: 3 }
                implicit_output_operands { register_name: "EFLAGS" }
              }
              canonicalized_instructions {
                mnemonic: "SUB"
                llvm_mnemonic: "SUB64rr"
-               output_operands { register_name: "RAX" }
-               input_operands { register_name: "RAX" }
-               input_operands { register_name: "RDX" }
-               implicit_output_operands { register_name: "EFLAGS" }
+               output_operands { 
+                  register {
+                    physical_register: "RAX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RAX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RDX"
+                  }
+                }
+               implicit_output_operands { 
+                  register {
+                    physical_register: "EFLAGS"
+                  }
+                }
              }
              canonicalized_instructions {
                mnemonic: "CMP"
                llvm_mnemonic: "CMP64rr"
-               input_operands { register_name: "RBX" }
-               input_operands { register_name: "RAX" }
-               implicit_output_operands { register_name: "EFLAGS" }
+               input_operands { 
+                  register {
+                    physical_register: "RBX"
+                  }
+                }
+               input_operands { 
+                  register {
+                    physical_register: "RAX"
+                  }
+                }
+               implicit_output_operands { 
+                  register {
+                    physical_register: "EFLAGS"
+                  }
+                }
              }
            }
            inverse_throughputs {
