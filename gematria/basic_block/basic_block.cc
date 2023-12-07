@@ -60,18 +60,36 @@ std::string AddressTuple::ToString() const {
   buffer << "AddressTuple(";
   if (!base_register.empty()) {
     buffer << "base_register='" << base_register << "', ";
+    buffer << "base_register_size=" << base_register_size << ", ";
+    buffer << "base_register_intefered_register={";
+    for (const std::string& interfered_register : base_register_intefered_register) {
+      buffer << "'" << interfered_register << "', ";
+    }
+    buffer << "}, ";
   }
   if (displacement != 0) {
     buffer << "displacement=" << displacement << ", ";
   }
   if (!index_register.empty()) {
     buffer << "index_Register='" << index_register << "', ";
+    buffer << "index_register_size=" << index_register_size << ", ";
+    buffer << "index_register_intefered_register={";
+    for (const std::string& interfered_register : index_register_intefered_register) {
+      buffer << "'" << interfered_register << "', ";
+    }
+    buffer << "}, ";
   }
   if (!index_register.empty() || scaling != 0) {
     buffer << "scaling=" << scaling << ", ";
   }
   if (!segment_register.empty()) {
     buffer << "segment_register='" << segment_register << "', ";
+    buffer << "segment_register_size=" << segment_register_size << ", ";
+    buffer << "segment_register_intefered_register={";
+    for (const std::string& interfered_register : segment_register_intefered_register) {
+      buffer << "'" << interfered_register << "', ";
+    }
+    buffer << "}, ";
   }
   // If we added any keyword args to the buffer, drop the last two characters
   // (a comma and a space). This is not strictly necessary, but it looks better.
@@ -108,11 +126,12 @@ bool InstructionOperand::operator==(const InstructionOperand& other) const {
 }
 
 InstructionOperand InstructionOperand::VirtualRegister(
-    const std::string register_name, size_t size) {
+    const std::string register_name, size_t size, const std::vector<std::string>& interfered_registers) {
   InstructionOperand result;
   result.type_ = OperandType::kVirtualRegister;
   result.register_name_ = std::move(register_name);
   result.size_ = size;
+  result.interfered_registers_ = std::move(interfered_registers);
   return result;
 }
 
@@ -151,7 +170,10 @@ InstructionOperand InstructionOperand::Address(std::string base_register,
                                                int64_t displacement,
                                                std::string index_register,
                                                int scaling,
-                                               std::string segment_register) {
+                                               std::string segment_register,
+                                               int base_register_size,
+                                               int index_register_size,
+                                               int segment_register_size) {
   InstructionOperand result;
   result.type_ = OperandType::kAddress;
   result.address_.base_register = std::move(base_register);
@@ -159,6 +181,12 @@ InstructionOperand InstructionOperand::Address(std::string base_register,
   result.address_.displacement = displacement;
   result.address_.scaling = scaling;
   result.address_.segment_register = segment_register;
+  result.address_.base_register_size = base_register_size;
+  result.address_.index_register_size = index_register_size;
+  result.address_.segment_register_size = segment_register_size;
+  result.address_.base_register_intefered_register = {};
+  result.address_.index_register_intefered_register = {};
+  result.address_.segment_register_intefered_register = {};
   return result;
 }
 

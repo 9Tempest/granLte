@@ -1,18 +1,19 @@
 import re
+import sys
 
 def simplify_live_intervals(input_file, output_file):
     with open(input_file, 'r') as file:
         lines = file.readlines()
-    simplified_outputs = []
+    simplified_outputs = {}
     simplified_output = []
     intervals_section = False
     machine_instrs_section = False
     basic_block_name = None
     basic_block_start = None
     previous_line_end = None
+    function_name = None
 
     for line in lines:
-
         # Extract function name using regex
         if machine_instrs_section and line.startswith('# Machine code for function'):
             match = re.search(r'function\s+([^\s:]+)', line)
@@ -49,12 +50,14 @@ def simplify_live_intervals(input_file, output_file):
         if '# End machine code for function' in line:
             machine_instrs_section = False
             intervals_section = False
-            simplified_outputs.append(simplified_output)
+            if basic_block_name is not None:
+                simplified_output.append(f"{basic_block_name}: {basic_block_start}B {previous_line_end}B\n")
+                basic_block_name = None
+            simplified_outputs[function_name] = simplified_output
             continue
 
         if intervals_section:
-            if line.startswith('%'):
-                simplified_output.append(line)
+            simplified_output.append(line)
         if machine_instrs_section:
             match = re.search(r'bb\.\d+\.(BB_\d+)', line)
             if match:
@@ -68,9 +71,15 @@ def simplify_live_intervals(input_file, output_file):
         simplified_output.append(f"{basic_block_name}: {basic_block_start}B {previous_line_end}B\n")
 
     with open(output_file, 'w') as file:
-        for simplified_output in simplified_outputs:
-            file.writelines(simplified_output)
+        for function_name, simplified_output in simplified_outputs.items():
+            for line in simplified_output:
+                file.write(line)
 # Example usage
-input_file = 'log.txt'  # replace with your input file name
-output_file = 'output.txt'  # replace with your desired output file name
-simplify_live_intervals(input_file, output_file)
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        print("Usage: python bhive_simplify_LI.py <input_file> <output_file>")
+        sys.exit(1)
+    input_file = sys.argv[1]
+    output_file = sys.argv[2]
+    simplify_live_intervals(input_file, output_file)

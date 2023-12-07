@@ -72,10 +72,6 @@ void ReplaceExprOperands(llvm::MachineInstr& instruction) {
   for (int i = 0; i < instruction.getNumOperands(); ++i) {
     llvm::MachineOperand& operand = instruction.getOperand(i);
     if (operand.isSymbol() || operand.isGlobal() || operand.isCPI()) {
-      // TODO(ondrasej): In some cases the value may change the binary encoding
-      // of the instruction, e.g. switch between an 8-bit or a 32-bit encoding
-      // of the displacement and 0 might have a special meaning (e.g. do not use
-      // displacement at all).
       operand = llvm::MachineOperand::CreateImm(1);
     }
   }
@@ -125,7 +121,7 @@ bool Canonicalizer::GetRegisterNameOrEmpty(
     const llvm::MachineFunction *MF = operand.getParent()->getParent()->getParent();
     const llvm::TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
     const llvm::MachineRegisterInfo &MRI = MF->getRegInfo();
-    unsigned Size = TRI->getRegSizeInBits(reg, MRI);
+    size_t Size = TRI->getRegSizeInBits(reg, MRI);
     name = "%" + std::to_string(llvm::Register::virtReg2Index(reg));
     size = Size;
     return false;
@@ -156,7 +152,7 @@ llvm::SmallVector<std::string_view, 2> SplitByAny(std::string_view str,
 void AddX86VendorMnemonicAndPrefixes(
     llvm::MCInstPrinter& printer, const llvm::MCSubtargetInfo& subtarget_info,
     const llvm::MCInst& mcinst, Instruction& instruction) {
-  constexpr const char* kKnownPrefixes[] = {"REP", "LOCK", "REPNE", "REPE"};
+  constexpr const char* kKnownPrefixes[] = {"nofpexcept"};
 
   std::string assembly_code;
   llvm::raw_string_ostream stream(assembly_code);
@@ -294,8 +290,8 @@ Instruction X86Canonicalizer::PlatformSpecificInstructionFromMachineInstr(const 
   Instruction instruction;
   instruction.llvm_mnemonic =
       target_machine_.getMCInstrInfo()->getName(MI.getOpcode());
-  AddMIRVendorMnemonicAndPrefixes(*target_machine_.getMCSubtargetInfo(), MI,
-                                  instruction);
+  instruction.mnemonic =
+      target_machine_.getMCInstrInfo()->getName(MI.getOpcode());
 
   const llvm::MCInstrDesc& descriptor = instr_info.get(MI.getOpcode());
   if (descriptor.mayLoad()) {
@@ -472,12 +468,14 @@ void X86Canonicalizer::AddOperand(const llvm::MachineInstr& mi, int operand_inde
                         : instruction.input_operands;
   if (is_address_computation_tuple) { // TODO: Check if MIR has address computation tuple
     std::string base_register;
-    size_t tmp_size;
+    size_t base_register_size = 64;
+    size_t index_register_size = 64;
+    size_t segment_register_size = 64;
     if (mi.getOperand(operand_index + llvm::X86::AddrBaseReg).isReg()){
       GetRegisterNameOrEmpty(
-        mi.getOperand(operand_index + llvm::X86::AddrBaseReg), base_register, tmp_size);
+        mi.getOperand(operand_index + llvm::X86::AddrBaseReg), base_register, base_register_size);
     } else if (mi.getOperand(operand_index + llvm::X86::AddrBaseReg).isFI()){
-      base_register = "rbp";
+      base_register = "RBP";
     } else {
       assert(false && "unsupported base register type");
       LOG(mi);
@@ -486,18 +484,21 @@ void X86Canonicalizer::AddOperand(const llvm::MachineInstr& mi, int operand_inde
           mi.getOperand(operand_index + llvm::X86::AddrDisp).getImm();
       std::string index_register;
       GetRegisterNameOrEmpty(
-        mi.getOperand(operand_index + llvm::X86::AddrIndexReg), index_register, tmp_size);
+        mi.getOperand(operand_index + llvm::X86::AddrIndexReg), index_register, index_register_size);
       const int64_t scaling =
           mi.getOperand(operand_index + llvm::X86::AddrScaleAmt).getImm();
       std::string segment_register; 
       GetRegisterNameOrEmpty(
-          mi.getOperand(operand_index + llvm::X86::AddrSegmentReg), segment_register, tmp_size);
+          mi.getOperand(operand_index + llvm::X86::AddrSegmentReg), segment_register, segment_register_size);
       operand_list.push_back(InstructionOperand::Address(
           /* base_register= */ std::move(base_register),
           /* displacement= */ displacement,
           /* index_register= */ std::move(index_register),
           /* scaling= */ static_cast<int>(scaling),
-          /* segment_register= */ std::move(segment_register)));
+          /* segment_register= */ std::move(segment_register),
+          /* base_register_size= */ base_register_size,
+          /* index_register_size= */ index_register_size,
+          /* segment_register_size= */ segment_register_size));
         LOG("Hit here address_computation_tuple reg " << mi << "\n");
   } else if (operand.isReg()) {
     std::string name;
@@ -508,7 +509,7 @@ void X86Canonicalizer::AddOperand(const llvm::MachineInstr& mi, int operand_inde
           InstructionOperand::Register(name));
     } else {
       operand_list.push_back(
-          InstructionOperand::VirtualRegister(name, size));
+          InstructionOperand::VirtualRegister(name, size, {}));
     }
   } else if (operand.isImm()) {
     operand_list.push_back(

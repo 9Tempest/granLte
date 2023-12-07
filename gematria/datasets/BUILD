@@ -25,6 +25,10 @@ cc_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
         "@llvm-project//llvm:CodeGen",
+        "@llvm-project//llvm:Analysis",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Passes",
+        
         
     ],
 )
@@ -101,7 +105,6 @@ cc_test(
         "@llvm-project//llvm:MC",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
-        "@llvm-project//llvm:ir_headers",
     ],
 )
 

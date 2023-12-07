@@ -156,15 +156,17 @@ PYBIND11_MODULE(basic_block, m) {
                   py::arg("fp_immediate_value"))
       .def_static("from_virtual_register",
                   &InstructionOperand::VirtualRegister,
-                  py::arg("register_name"), py::arg("size") = 0)
+                  py::arg("register_name"), py::arg("size"), py::arg("interfered_registers"))
       .def_static<InstructionOperand (*)(
           std::string /* base_register */, int64_t /* displacement */,
           std::string /* index_register */, int /* scaling */,
-          std::string /* segment_register */)>(
+          std::string /* segment_register */, int /* base_register_size */,
+          int /* index_register_size */, int /* segment_register_size */)>(
           "from_address", &InstructionOperand::Address,
           py::arg("base_register") = std::string(), py::arg("displacement") = 0,
           py::arg("index_register") = std::string(), py::arg("scaling") = 0,
-          py::arg("segment_register") = std::string())
+          py::arg("segment_register") = std::string(), py::arg("base_register_size") = 64,
+          py::arg("index_register_size") = 64, py::arg("segment_register_size") = 64)
       .def_static<InstructionOperand (*)(AddressTuple)>(
           "from_address", &InstructionOperand::Address,
           py::arg("address_tuple"))

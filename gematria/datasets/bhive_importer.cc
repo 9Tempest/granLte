@@ -36,20 +36,26 @@
 #include "gematria/proto/throughput.pb.h"
 #include "gematria/utils/string.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Error.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 
+#define DEBUG
 
 #ifdef DEBUG
-#define LOG(X) \
-  llvm::errs() << X << "\n"
+#define LOG(X) llvm::errs() << X << "\n"
 #else
 #define LOG(X)
 #endif
+
+// Author: Zhan Shi
+#include "llvm/CodeGen/LiveInterval.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Pass.h"
 
 namespace gematria {
 namespace {
@@ -73,8 +79,25 @@ BHiveImporter::BHiveImporter(const Canonicalizer* canonicalizer)
       mc_inst_printer_(target_machine_.getTarget().createMCInstPrinter(
           target_machine_.getTargetTriple(), kDefaultSyntax,
           *target_machine_.getMCAsmInfo(), *target_machine_.getMCInstrInfo(),
-          *target_machine_.getMCRegisterInfo())), 
-      MMI_(dynamic_cast<const llvm::LLVMTargetMachine*>(&target_machine_)) {}
+          *target_machine_.getMCRegisterInfo())),
+      MMI_(dynamic_cast<const llvm::LLVMTargetMachine*>(&target_machine_)) {
+  const llvm::MCRegisterInfo& MRI = *target_machine_.getMCRegisterInfo();
+  for (llvm::MCPhysReg I = 1, E = MRI.getNumRegs(); I != E; ++I) {
+    // Append register definition line.
+    llvm::StringRef reg_name = MRI.getName(I);
+    name_to_reg_[reg_name.str()] = I;
+    // push itself to its own superreg2subreg_ list
+    superreg2subreg_[reg_name.str()].push_back(reg_name.str());
+    for (auto SuperReg : MRI.superregs(I)) {
+      if (MRI.isSubRegister(SuperReg, I)) {
+        llvm::StringRef super_reg_name = MRI.getName(SuperReg);
+        superreg2subreg_[super_reg_name.str()].push_back(reg_name.str());
+      }
+    }
+  }
+  // prettyPrintName2Reg();
+  // prettyPrintSuperReg2SubReg();
+}
 
 absl::StatusOr<BasicBlockProto> BHiveImporter::BasicBlockProtoFromMachineCode(
     llvm::ArrayRef<uint8_t> machine_code, uint64_t base_address /*= 0*/) {
@@ -171,33 +194,34 @@ absl::StatusOr<BasicBlockProto> BHiveImporter::BasicBlockProtoFromMBBName(
 
   llvm::MachineBasicBlock* MBB = name_to_mbb_[MBB_name_ref];
   LOG("MBB is " << *MBB);
-  for (llvm::MachineInstr& MI : *MBB){
+  for (llvm::MachineInstr& MI : *MBB) {
     // if MI is a control instruction(ret,branch,jmp), skip it
     if (MI.isInlineAsm() || MI.isTerminator() || MI.isEHLabel()) {
       continue;
     }
 
     // Assert MI cannot be a CALL instruction
-    if(MI.isCall()){
-      LOG("MI is a CALL instruction, abort this BB " << MI);
+    if (MI.isCall()) {
+      // LOG("MI is a CALL instruction, abort this BB " << MI);
       return absl::InvalidArgumentError(
-        absl::StrCat("Cannot handle CALL instruction "));
-    } 
+          absl::StrCat("Cannot handle CALL instruction "));
+    }
     auto I = canonicalizer_.InstructionFromMachineInstr(MI);
     if (!I.is_valid) {
       LOG("MI is not valid, skipping it " << MI);
       return absl::InvalidArgumentError(
-        absl::StrCat("Could not parse MachineInstr "));
+          absl::StrCat("Could not parse MachineInstr "));
     }
-    *basic_block_proto.add_canonicalized_instructions() = ProtoFromInstruction(I);
+    *basic_block_proto.add_canonicalized_instructions() =
+        ProtoFromInstruction(I);
   }
   return basic_block_proto;
 }
 
 absl::StatusOr<BasicBlockWithThroughputProto> BHiveImporter::ParseMIRCsvLine(
-    std::string_view source_name, std::string_view line,
-    size_t BB_name_index, size_t throughput_column_index,
-    double throughput_scaling /*= 1.0*/, uint64_t base_address /*= 0*/) {
+    std::string_view source_name, std::string_view line, size_t BB_name_index,
+    size_t throughput_column_index, double throughput_scaling /*= 1.0*/,
+    uint64_t base_address /*= 0*/) {
   const absl::InlinedVector<std::string_view, 2> columns =
       absl::StrSplit(line, ',');
   const int min_required_num_columns =
@@ -213,8 +237,7 @@ absl::StatusOr<BasicBlockWithThroughputProto> BHiveImporter::ParseMIRCsvLine(
         "different, but were both %d: %s",
         BB_name_index, line));
   }
-  const std::string_view BB_unique_name =
-      columns[BB_name_index];
+  const std::string_view BB_unique_name = columns[BB_name_index];
   const std::string_view throughput_str = columns[throughput_column_index];
 
   BasicBlockWithThroughputProto proto;
@@ -222,6 +245,23 @@ absl::StatusOr<BasicBlockWithThroughputProto> BHiveImporter::ParseMIRCsvLine(
   absl::StatusOr<BasicBlockProto> block_proto_or_status =
       BasicBlockProtoFromMBBName(BB_unique_name, base_address);
   if (!block_proto_or_status.ok()) return block_proto_or_status.status();
+
+  llvm::StringRef MBB_name_ref(BB_unique_name.data(), BB_unique_name.size());
+  // lookup the MBB in the map, if not, return error
+  if (name_to_mbb_.find(MBB_name_ref) == name_to_mbb_.end()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Could not find MBB with name ", BB_unique_name));
+  }
+
+  // llvm::MachineBasicBlock* MBB = name_to_mbb_[MBB_name_ref];
+  // std::string func_name = MBB->getParent()->getName().str();
+  // assert(func_to_live_intervals_.find(func_name) !=
+  //            func_to_live_intervals_.end() &&
+  //        "Function not found in map");
+  // addInterferenceGraph(*block_proto_or_status,
+  //                      func_to_live_intervals_[func_name],
+  //                      func_to_live_intervals_[func_name]
+  //                          .BBRangeList[std::string(BB_unique_name)]);
   *proto.mutable_basic_block() = std::move(block_proto_or_status).value();
 
   double throughput_cycles = 0.0;
@@ -239,12 +279,13 @@ absl::StatusOr<BasicBlockWithThroughputProto> BHiveImporter::ParseMIRCsvLine(
   return proto;
 }
 
-absl::StatusOr<bool> BHiveImporter::LoadMIRModule(std::string_view file_name){
+absl::StatusOr<bool> BHiveImporter::LoadMIRModule(std::string_view file_name) {
   // clear previous loaded module
+  func_to_live_intervals_.clear();
   name_to_mbb_.clear();
-  if (mir_module_){
-    for (llvm::Function &F : mir_module_->functions()) {
-        MMI_.deleteMachineFunctionFor(F);
+  if (mir_module_) {
+    for (llvm::Function& F : mir_module_->functions()) {
+      MMI_.deleteMachineFunctionFor(F);
     }
   }
 
@@ -260,8 +301,8 @@ absl::StatusOr<bool> BHiveImporter::LoadMIRModule(std::string_view file_name){
   // Parse the LLVM IR module (if any)
   mir_module_ = mir_parser_->parseIRModule();
   if (!mir_module_) {
-      // Handle error
-      return absl::InvalidArgumentError(
+    // Handle error
+    return absl::InvalidArgumentError(
         absl::StrCat("Could not parse MIR module for file ", file_name));
   }
 
@@ -269,27 +310,393 @@ absl::StatusOr<bool> BHiveImporter::LoadMIRModule(std::string_view file_name){
 
   // Parse the MachineFunctions and add them to MMI
   if (mir_parser_->parseMachineFunctions(*mir_module_, MMI_)) {
-      // Handle error
-      return absl::InvalidArgumentError(
+    // Handle error
+    return absl::InvalidArgumentError(
         absl::StrCat("Could not parse MachineFunctions for file ", file_name));
   }
 
   // Now iterate over the MachineFunctions and their MachineBasicBlocks
-    for (auto &F : *mir_module_) {
-        if (F.isDeclaration()) continue;
-        llvm::MachineFunction &MF = MMI_.getOrCreateMachineFunction(F);
-        for (auto &MBB : MF) {
-            // assert name is unique
-            if (name_to_mbb_.find(MBB.getName()) != name_to_mbb_.end()) {
-              // clear this key-value pair
-              name_to_mbb_.erase(MBB.getName());
-            } else {
-              name_to_mbb_[MBB.getName()] = &MBB;
-            }
-        }
+  for (auto& F : *mir_module_) {
+    if (F.isDeclaration()) continue;
+    llvm::MachineFunction& MF = MMI_.getOrCreateMachineFunction(F);
+    for (auto& MBB : MF) {
+      // assert name is unique
+      if (name_to_mbb_.find(MBB.getName()) != name_to_mbb_.end()) {
+        // clear this key-value pair
+        name_to_mbb_.erase(MBB.getName());
+      } else {
+        name_to_mbb_[MBB.getName()] = &MBB;
+      }
+    }
+  }
+  return true;
+}
+
+// Debug Utilities that prints information of a single RegLiveIntervals
+void printRegLiveIntervals(BHiveImporter::RegLiveIntervals LI) {
+  LOG("Information of Single RegLiveIntervals named: " << LI.name);
+
+  for (BHiveImporter::BhiveLiveRange range : LI.rangeList) {
+    LOG("  Live range: " << range.first << ", " << range.second);
+  }
+
+  LOG("  Anchor: " << LI.anchor);
+  LOG("  Weight: " << LI.weight);
+}
+
+// Debug Utilities for FunctionLiveIntervalInfoMap, which includes
+// Name of a function as well as FunctionLiveIntervalInfo
+void printMap(
+    std::unordered_map<std::string, BHiveImporter::FunctionLiveIntervalInfo>&
+        FunctionLiveIntervalInfoMap) {
+  // Indicate there is a test
+  std::cerr << "*********Start of my test************"
+            << "\n";
+
+  for (auto& functionInfoPair : FunctionLiveIntervalInfoMap) {
+    std::cerr << "Function Name: " << functionInfoPair.first << "\n";
+
+    // Print live range of register
+    for (auto& pairInfo :
+         functionInfoPair.second.virtual_register_live_range_func) {
+      LOG("Virtual Register Name: " << pairInfo.first);
+      printRegLiveIntervals(pairInfo.second);
     }
 
-    return true;
+    for (auto& pairInfo :
+         functionInfoPair.second.physical_register_live_range_func) {
+      LOG("Physical Register Name: " << pairInfo.first);
+      printRegLiveIntervals(pairInfo.second);
+    }
+
+    // And also we test the BBrange as well
+    for (auto& pairInfo : functionInfoPair.second.BBRangeList) {
+      LOG("BB Name: " << pairInfo.first);
+      LOG("  Live range: " << pairInfo.second.first << ", "
+                           << pairInfo.second.second);
+    }
+
+    LOG("-------End of a Function-------");
+  }
+}
+
+static bool areIntersected(const BHiveImporter::BhiveLiveRange& range1,
+                           const BHiveImporter::BhiveLiveRange& range2) {
+  // Check if one range starts after the other ends or vice versa.
+  if (range1.second <= range2.first || range2.second <= range1.first) {
+    return false;  // No intersection.
+  }
+  return true;  // Ranges are intersected.
+}
+
+absl::StatusOr<bool> BHiveImporter::InteferenceGraphParser(
+    std::string_view file_name) {
+  // Boilerplate for reading input
+  std::ifstream input_file{std::string(file_name)};
+
+  if (!input_file.is_open()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Could not open file ", file_name));
+  }
+  // FunctionLiveIntervalInfo Denotes all live ranges and bb ranges for a single
+  // function FunctionLiveIntervalInfoList is a llvm smal vector that stores
+  // FunctionLiveIntervalInfo We read one line at a time
+  std::string line;
+
+  // For each function, we need to first store an empty info into the hashmap
+  // and then modify its contents while it is in hasmap
+  // To do this, we need to have an allias called "ref" that refers to info
+  // That is already stored in the hashmap
+  FunctionLiveIntervalInfo* info = nullptr;
+  std::string curFuncName = "dummy";
+  bool isParsingRegister = false;
+
+  // Read each line
+  while (std::getline(input_file, line)) {
+    std::istringstream lineStream(line);
+
+    // if we encounter a '%' symbol at the beginning, then we encountered a live
+    // interval register
+    if (isParsingRegister) {
+      if (line.substr(0, 8) == "RegMasks") {
+        isParsingRegister = false;
+        // LOG("End of parsing register");
+        continue;
+      }
+      std::string currentRegister;
+      unsigned int start, end, discard;
+      char dummy;
+
+      bool is_virtual = line[0] == '%';
+
+      // Get the register name first
+      lineStream >> currentRegister;
+
+      // Understand how many life ranges are there in this line
+      uint32_t numberLiveRanges = std::count(line.begin(), line.end(), '[');
+
+      // Now we need to read the starting and ending indices of a live range
+      for (uint32_t count = 0; count < numberLiveRanges; count++) {
+        lineStream >> dummy >> start >> dummy >> dummy >> end >> dummy >>
+            dummy >> discard >> dummy;
+
+        // Print out information for debug
+        // std::cerr << "Register: " << currentRegister << ", " << start << ", "
+        //           << end << "\n";
+
+        // Since LLVM do not support [] operator we need to find it first
+        auto resultRegLiveIntervals =
+            (is_virtual)
+                ? info->virtual_register_live_range_func.find(currentRegister)
+                : info->physical_register_live_range_func.find(currentRegister);
+
+        // If you find the current register in the register_live_range_func,
+        // you insert a BhiveLiveRange with {start, end} in the range list of
+        // the find return If not, then you insert a new pair: {currentRegister,
+        // RegLiveIntervals}
+        if (is_virtual) {
+          if (resultRegLiveIntervals !=
+              info->virtual_register_live_range_func.end()) {
+            // If you find the register, then you insert a new range
+            resultRegLiveIntervals->second.rangeList.push_back({start, end});
+          } else {
+            // If you do not find the register, then you insert a new pair
+            // {currentRegister, RegLiveIntervals}
+            RegLiveIntervals newRegLiveIntervals;
+            newRegLiveIntervals.name = currentRegister;
+            newRegLiveIntervals.rangeList.push_back({start, end});
+            info->virtual_register_live_range_func.insert(
+                {currentRegister, newRegLiveIntervals});
+          }
+        } else {
+          if (resultRegLiveIntervals !=
+              info->physical_register_live_range_func.end()) {
+            // If you find the register, then you insert a new range
+            resultRegLiveIntervals->second.rangeList.push_back({start, end});
+          } else {
+            // If you do not find the register, then you insert a new pair
+            // {currentRegister, RegLiveIntervals}
+            RegLiveIntervals newRegLiveIntervals;
+            newRegLiveIntervals.name = currentRegister;
+            newRegLiveIntervals.rangeList.push_back({start, end});
+            info->physical_register_live_range_func.insert(
+                {currentRegister, newRegLiveIntervals});
+          }
+        }
+      }
+    }
+
+    // If we encounter a "BB_" symbol, then we encounter a BB entry
+    else if (line.substr(0, 3) == "BB_") {
+      std::string currentBB;
+      unsigned int start, end;
+      char dummy;
+      std::string junk;
+
+      // Read name of BB and delete the trailing ':'
+      lineStream >> currentBB;
+      if (currentBB[currentBB.size() - 1] == ':')
+        currentBB.erase(currentBB.size() - 1);
+
+      // read range
+      lineStream >> start >> dummy >> end;
+
+      info->BBRangeList[currentBB] = {start, end};
+    }
+
+    // In this case, we arrived at the definition of a new function
+    // In this case we need to
+    else if (line[0] == '_') {
+      // We reached the end of a function, add info to the Map
+      // If this is the beginning of a new function, just add
+      // a dummy value and delete it at the end
+
+      std::string copyName(line);
+      // Store new function name and information
+      lineStream >> curFuncName;
+      // LOG("curr Function name is : " << curFuncName);
+      func_to_live_intervals_[curFuncName] = FunctionLiveIntervalInfo();
+      info = &func_to_live_intervals_[curFuncName];
+      isParsingRegister = true;
+    }
+  }
+
+  // Now we want to debug and print things inside the FunctionLiveIntervalMap
+  // printMap(func_to_live_intervals_);
+  return true;
+}
+
+static bool checkRegIntersectionsWithBBRange(
+    const BHiveImporter::RegLiveIntervals& reg_live_interval1,
+    const BHiveImporter::RegLiveIntervals& reg_live_interval2,
+    const BHiveImporter::BhiveLiveRange& bb_range) {
+  const BHiveImporter::BhiveLiveRange* range1HitsBB = nullptr;
+  for (auto& interval : reg_live_interval1.rangeList) {
+    if (areIntersected(interval, bb_range)) {
+      range1HitsBB = &interval;
+    }
+  }
+  if (!range1HitsBB) {
+    return false;
+  }
+  for (auto& interval : reg_live_interval2.rangeList) {
+    if (areIntersected(interval, bb_range)) {
+      if (areIntersected(*range1HitsBB, interval)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void BHiveImporter::addInterferenceGraph(
+    BasicBlockProto& bb_proto,
+    BHiveImporter::FunctionLiveIntervalInfo& func_live_infos,
+    BHiveImporter::BhiveLiveRange& bb_range) {
+  std::set<std::string> live_virtual_registers;
+  std::set<std::string> live_physical_registers;
+
+  // helper function to update live_virtual_registers and
+  // live_physical_registers
+  auto update_live_regs = [&](const CanonicalizedOperandProto& operand) {
+    if (operand.operand_case() == CanonicalizedOperandProto::kVirtualRegister) {
+      live_virtual_registers.insert(operand.virtual_register().name());
+    } else if (operand.operand_case() ==
+               CanonicalizedOperandProto::kRegisterName) {
+      live_physical_registers.insert(operand.register_name());
+    } else if (operand.operand_case() == CanonicalizedOperandProto::kAddress) {
+      if (!operand.address().base_register().empty()) {
+        if (operand.address().base_register()[0] == '%') {
+          live_virtual_registers.insert(operand.address().base_register());
+        } else {
+          live_physical_registers.insert(operand.address().base_register());
+        }
+      }
+      if (!operand.address().index_register().empty()) {
+        if (operand.address().index_register()[0] == '%') {
+          live_virtual_registers.insert(operand.address().index_register());
+        } else {
+          live_physical_registers.insert(operand.address().index_register());
+        }
+      }
+      if (!operand.address().segment().empty()) {
+        if (operand.address().segment()[0] == '%') {
+          live_virtual_registers.insert(operand.address().segment());
+        } else {
+          live_physical_registers.insert(operand.address().segment());
+        }
+      }
+    }
+  };
+
+  auto add_interference_on_name =
+      [&](const std::string& name,
+          google::protobuf::RepeatedPtrField<std::string>*
+              mutable_intefered_register) {
+        for (auto vReg : live_virtual_registers) {
+          if (vReg == name) continue;
+          assert(func_live_infos.virtual_register_live_range_func.find(vReg) !=
+                     func_live_infos.virtual_register_live_range_func.end() &&
+                 "Virtual register not found in map");
+          // If the live range of the two registers intersect, then add
+          // interference to proto
+          if (checkRegIntersectionsWithBBRange(
+                  func_live_infos.virtual_register_live_range_func[name],
+                  func_live_infos.virtual_register_live_range_func[vReg],
+                  bb_range)) {
+            mutable_intefered_register->Add(std::move(vReg));
+          }
+        }
+        // add interference from physical registers to current operand
+        for (auto pReg : live_physical_registers) {
+          auto subRegs = superreg2subreg_[pReg];
+          // if there's one subReg of Preg that has interference with current
+          // operand then add interference to proto
+          for (auto subReg : subRegs) {
+            if (func_live_infos.physical_register_live_range_func.find(
+                    subReg) ==
+                func_live_infos.physical_register_live_range_func.end())
+              continue;
+            // pretty print live range of subRegs
+            // LOG("Live range of subReg: " << subReg);
+            // for (auto& range :
+            //      func_live_infos.physical_register_live_range_func[subReg]
+            //          .rangeList) {
+            //   LOG("  " << range.first << ", " << range.second);
+            // }
+            if (checkRegIntersectionsWithBBRange(
+                    func_live_infos.virtual_register_live_range_func[name],
+                    func_live_infos.physical_register_live_range_func[subReg],
+                    bb_range)) {
+              mutable_intefered_register->Add(std::move(pReg));
+              break;
+            }
+          }
+        }
+      };
+
+  auto add_interference = [&](CanonicalizedOperandProto& operand) {
+    if (operand.operand_case() == CanonicalizedOperandProto::kVirtualRegister) {
+      add_interference_on_name(operand.virtual_register().name(),
+                               operand.mutable_intefered_register());
+    } else if (operand.operand_case() == CanonicalizedOperandProto::kAddress) {
+      if (!operand.address().base_register().empty() &&
+          operand.address().base_register()[0] == '%') {
+        add_interference_on_name(
+            operand.address().base_register(),
+            operand.mutable_address()
+                ->mutable_base_register_intefered_register());
+      }
+      if (!operand.address().index_register().empty() &&
+          operand.address().index_register()[0] == '%') {
+        add_interference_on_name(
+            operand.address().index_register(),
+            operand.mutable_address()
+                ->mutable_index_register_intefered_register());
+      }
+      if (!operand.address().segment().empty() &&
+          operand.address().segment()[0] == '%') {
+        add_interference_on_name(
+            operand.address().segment(),
+            operand.mutable_address()->mutable_segment_intefered_register());
+      }
+    }
+  };
+  // iterate over all operands in bb_proto, add virtual registers to
+  // live_virtual_registers
+  for (const auto& instruction : bb_proto.canonicalized_instructions()) {
+    for (const auto& operand : instruction.input_operands()) {
+      update_live_regs(operand);
+    }
+    for (const auto& operand : instruction.implicit_input_operands()) {
+      update_live_regs(operand);
+    }
+    for (const auto& operand : instruction.output_operands()) {
+      update_live_regs(operand);
+    }
+    for (const auto& operand : instruction.implicit_output_operands()) {
+      update_live_regs(operand);
+    }
+  }
+
+  // pretty print physical registers
+  // LOG("Physical Registers: ");
+  // for (auto& reg : live_physical_registers) {
+  //   LOG("Physical Register: " << reg);
+  // }
+
+  // Iterate over all operands in bb_proto, add interference registers to each
+  // operand
+  for (auto& instruction : *bb_proto.mutable_canonicalized_instructions()) {
+    // LOG("before: " << instruction.DebugString());
+    for (auto& operand : *instruction.mutable_input_operands()) {
+      add_interference(operand);
+    }
+    for (auto& operand : *instruction.mutable_output_operands()) {
+      add_interference(operand);
+    }
+    // LOG("after: " << instruction.DebugString());
+  }
 }
 
 }  // namespace gematria
