@@ -62,7 +62,8 @@ std::string AddressTuple::ToString() const {
     buffer << "base_register='" << base_register << "', ";
     buffer << "base_register_size=" << base_register_size << ", ";
     buffer << "base_register_intefered_register={";
-    for (const std::string& interfered_register : base_register_intefered_register) {
+    for (const std::string& interfered_register :
+         base_register_intefered_register) {
       buffer << "'" << interfered_register << "', ";
     }
     buffer << "}, ";
@@ -74,7 +75,8 @@ std::string AddressTuple::ToString() const {
     buffer << "index_Register='" << index_register << "', ";
     buffer << "index_register_size=" << index_register_size << ", ";
     buffer << "index_register_intefered_register={";
-    for (const std::string& interfered_register : index_register_intefered_register) {
+    for (const std::string& interfered_register :
+         index_register_intefered_register) {
       buffer << "'" << interfered_register << "', ";
     }
     buffer << "}, ";
@@ -86,7 +88,8 @@ std::string AddressTuple::ToString() const {
     buffer << "segment_register='" << segment_register << "', ";
     buffer << "segment_register_size=" << segment_register_size << ", ";
     buffer << "segment_register_intefered_register={";
-    for (const std::string& interfered_register : segment_register_intefered_register) {
+    for (const std::string& interfered_register :
+         segment_register_intefered_register) {
       buffer << "'" << interfered_register << "', ";
     }
     buffer << "}, ";
@@ -126,12 +129,15 @@ bool InstructionOperand::operator==(const InstructionOperand& other) const {
 }
 
 InstructionOperand InstructionOperand::VirtualRegister(
-    const std::string register_name, size_t size, const std::vector<std::string>& interfered_registers) {
+    const std::string register_name, size_t size,
+    const std::vector<std::string>& interfered_registers,
+    std::vector<int> interfered_registers_size) {
   InstructionOperand result;
   result.type_ = OperandType::kVirtualRegister;
   result.register_name_ = std::move(register_name);
   result.size_ = size;
   result.interfered_registers_ = std::move(interfered_registers);
+  result.interfered_registers_size_ = std::move(interfered_registers_size);
   return result;
 }
 
@@ -166,14 +172,16 @@ InstructionOperand InstructionOperand::Address(AddressTuple address_tuple) {
   return result;
 }
 
-InstructionOperand InstructionOperand::Address(std::string base_register,
-                                               int64_t displacement,
-                                               std::string index_register,
-                                               int scaling,
-                                               std::string segment_register,
-                                               int base_register_size,
-                                               int index_register_size,
-                                               int segment_register_size) {
+InstructionOperand InstructionOperand::Address(
+    std::string base_register, int64_t displacement, std::string index_register,
+    int scaling, std::string segment_register, int base_register_size,
+    int index_register_size, int segment_register_size,
+    const std::vector<std::string>& base_register_intefered_register,
+    const std::vector<std::string>& index_register_intefered_register,
+    const std::vector<std::string>& segment_register_intefered_register,
+    const std::vector<int>& base_register_intefered_register_size,
+    const std::vector<int>& index_register_intefered_register_size,
+    const std::vector<int>& segment_register_intefered_register_size) {
   InstructionOperand result;
   result.type_ = OperandType::kAddress;
   result.address_.base_register = std::move(base_register);
@@ -184,9 +192,18 @@ InstructionOperand InstructionOperand::Address(std::string base_register,
   result.address_.base_register_size = base_register_size;
   result.address_.index_register_size = index_register_size;
   result.address_.segment_register_size = segment_register_size;
-  result.address_.base_register_intefered_register = {};
-  result.address_.index_register_intefered_register = {};
-  result.address_.segment_register_intefered_register = {};
+  result.address_.base_register_intefered_register =
+      std::move(base_register_intefered_register);
+  result.address_.index_register_intefered_register =
+      std::move(index_register_intefered_register);
+  result.address_.segment_register_intefered_register =
+      std::move(segment_register_intefered_register);
+  result.address_.base_register_intefered_register_sizes =
+      std::move(base_register_intefered_register_size);
+  result.address_.index_register_intefered_register_sizes =
+      std::move(index_register_intefered_register_size);
+  result.address_.segment_register_intefered_register_sizes =
+      std::move(segment_register_intefered_register_size);
   return result;
 }
 
@@ -213,14 +230,56 @@ void InstructionOperand::AddTokensToList(
       break;
     case OperandType::kAddress:
       tokens.emplace_back(kAddressToken);
-      tokens.emplace_back(address().base_register.empty()
-                              ? kNoRegisterToken
-                              : address().base_register);
-      tokens.emplace_back(address().index_register.empty()
-                              ? kNoRegisterToken
-                              : address().index_register);
-      if (!address().segment_register.empty()) {
-        tokens.push_back(address().segment_register);
+      if (address().base_register.empty()){
+        tokens.emplace_back(kNoRegisterToken);
+      } else {
+        if (address().base_register_size == '%'){
+          tokens.emplace_back(getVREG_TOKEN(address().base_register_size));
+          assert(address().base_register_intefered_register.size() == address().base_register_intefered_register_sizes.size());
+          for (int i = 0; i < address().base_register_intefered_register.size(); ++i) {
+            if (address().base_register_intefered_register_sizes[i] == '%'){
+              tokens.emplace_back(getVREG_TOKEN(address().base_register_intefered_register_sizes[i]));
+            } else {
+              tokens.emplace_back(address().base_register_intefered_register[i]);
+            }
+          }
+        } else {
+          tokens.emplace_back(address().base_register);
+        }
+      }
+      if (address().index_register.empty()){
+        tokens.emplace_back(kNoRegisterToken);
+      } else {
+        if (address().index_register_size == '%'){
+          tokens.emplace_back(getVREG_TOKEN(address().index_register_size));
+          assert(address().index_register_intefered_register.size() == address().index_register_intefered_register_sizes.size());
+          for (int i = 0; i < address().index_register_intefered_register.size(); ++i) {
+            if (address().index_register_intefered_register_sizes[i] == '%'){
+              tokens.emplace_back(getVREG_TOKEN(address().index_register_intefered_register_sizes[i]));
+            } else {
+              tokens.emplace_back(address().index_register_intefered_register[i]);
+            }
+          }
+        } else {
+          tokens.emplace_back(address().index_register);
+        }
+      }
+      if (address().segment_register.empty()){
+        tokens.emplace_back(kNoRegisterToken);
+      } else {
+        if (address().segment_register_size == '%'){
+          tokens.emplace_back(getVREG_TOKEN(address().segment_register_size));
+          assert(address().segment_register_intefered_register.size() == address().segment_register_intefered_register_sizes.size());
+          for (int i = 0; i < address().segment_register_intefered_register.size(); ++i) {
+            if (address().segment_register_intefered_register_sizes[i] == '%'){
+              tokens.emplace_back(getVREG_TOKEN(address().segment_register_intefered_register_sizes[i]));
+            } else {
+              tokens.emplace_back(address().segment_register_intefered_register[i]);
+            }
+          }
+        } else {
+          tokens.emplace_back(address().segment_register);
+        }
       }
       if (address().displacement != 0) {
         tokens.emplace_back(kDisplacementToken);
@@ -231,6 +290,14 @@ void InstructionOperand::AddTokensToList(
       break;
     case OperandType::kVirtualRegister:
       tokens.emplace_back(getVREG_TOKEN(size()));
+      assert(interfered_registers_.size() == interfered_registers_size_.size());
+      for (int i = 0; i < interfered_registers_.size(); ++i) {
+        if (interfered_registers_size_[i] == '%'){
+          tokens.emplace_back(getVREG_TOKEN(interfered_registers_size_[i]));
+        } else {
+          tokens.emplace_back(interfered_registers_[i]);
+        }
+      }
       break;
   }
 }

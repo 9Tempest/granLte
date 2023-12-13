@@ -94,6 +94,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "gematria/basic_block/basic_block.h"
@@ -125,12 +126,13 @@ enum class EdgeType {
   kAddressIndexRegister = 4,
   kAddressSegmentRegister = 5,
   kAddressDisplacement = 6,
+  kInterference = 7,
   // TODO(ondrasej): Remove this value after the experiments for the Granite
   // paper are completed. This value is not used, but it affects the size of an
   // embedding vector table; removing it would change the size of this table and
   // it would invalidate existing checkpoints.
-  kReverseStructuralDependency = 7,
-  kInstructionPrefix = 8,
+  kReverseStructuralDependency = 8,
+  kInstructionPrefix = 9,
 };
 
 std::ostream& operator<<(std::ostream& os, NodeType node_type);
@@ -339,6 +341,8 @@ class BasicBlockGraphBuilder {
     size_t prev_edge_receivers_size_;
     size_t prev_edge_types_size_;
     size_t prev_global_features_size_;
+    std::unordered_map<std::string_view, std::unordered_set<std::string>>
+        prev_interference_groups_;
   };
 
   // Adds nodes and edges for a single input operand of an instruction.
@@ -352,8 +356,18 @@ class BasicBlockGraphBuilder {
   // a register. Adds the register node if it doesn't exist in the graph.
   bool AddDependencyOnRegister(NodeIndex dependent_node,
                                const std::string& register_name,
-                               const std::string& register_token, 
+                               const std::string& register_token,
                                EdgeType edge_type);
+
+  bool AddDependencyToRegister(NodeIndex dependent_node,
+                               const std::string& register_name,
+                               const std::string& register_token,
+                               EdgeType edge_type);
+
+  bool AddInterference(const std::string& src_name,
+                       const std::string& src_token,
+                       const std::vector<std::string>& dest_names,
+                       const std::vector<int>& dest_sizes);
 
   // Adds a new node to the batch; the feature of the node is given directly by
   // the caller.
@@ -392,6 +406,8 @@ class BasicBlockGraphBuilder {
 
   std::unordered_map<std::string_view, NodeIndex> register_nodes_;
   std::unordered_map<int, NodeIndex> alias_group_nodes_;
+  std::unordered_map<std::string_view, std::unordered_set<std::string>>
+      interference_groups_;
 };
 
 }  // namespace gematria
